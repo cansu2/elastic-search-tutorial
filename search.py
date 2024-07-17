@@ -5,24 +5,46 @@ import time
 
 from dotenv import load_dotenv
 from elasticsearch import Elasticsearch
+from sentence_transformers import SentenceTransformer
+
 
 load_dotenv()
 
 
 class Search:
     def __init__(self):
+        self.model = SentenceTransformer('all-MiniLM-L6-v2')
         self.es = Elasticsearch('http://localhost:9200/')
         # self.es = Elasticsearch(cloud_id=os.environ['ELASTIC_CLOUD_ID'],
         #                         api_key=os.environ['ELASTIC_API_KEY'])
         client_info = self.es.info()
         print('Connected to Elasticsearch!')
         pprint(client_info.body)
-    
+
 
     def create_index(self):
-        # deletes the index first, ignore unavailable option prevents if the index is not found
-        self.es.indices.delete(index="my_documents", ignore_unavailable=True)
-        self.es.indices.create(index="my_documents")
+        self.es.indices.delete(index='my_documents', ignore_unavailable=True)
+        self.es.indices.create(index='my_documents', mappings={
+            'properties': {
+                'embedding': {
+                    'type': 'dense_vector',
+                }
+            }
+        })
+
+    # def create_index(self):
+    #     # deletes the index first, ignore unavailable option prevents if the index is not found
+    #     self.es.indices.delete(index="my_documents", ignore_unavailable=True)
+    #     # line 26 is for without vector store
+    #     # self.es.indices.create(index="my_documents")
+        
+    #     self.es.indices.create(index='my_document', mappings={
+    #         'properties': {
+    #             'embedding': {
+    #                 'type': 'dense_vector',
+    #             }
+    #         }
+    #     })
 
 
     def insert_document(self, document):
@@ -52,3 +74,24 @@ class Search:
     def retrieve_document(self, id):
         return self.es.get(index='my_documents', id=id)
     
+
+    def get_embedding(self, text):
+        return self.model.encode(text)
+    
+
+    def insert_document(self, document):
+        return self.es.index(index='my_documents', document={
+            **document, 
+            'embedding': self.get_embedding(document['summary'])
+        })
+    
+
+    def insert_documents(self, documents):
+        operations=[]
+        for document in documents:
+            operations.append({'index':{'_index': 'my_documents'}})
+            operations.append({
+                **document, 
+                'embedding': self.get_embedding(document['summary'])
+            })
+        return self.es.bulk(operations=operations)
